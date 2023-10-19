@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import annotations
 
+import os
 import logging
 import tempfile
 
@@ -83,7 +84,7 @@ class Settings(BaseSettings):
     LIMIT_ITEMS: int = 5
 
     # change the value of this variable to use a different STAC service provider
-    STAC_BACKEND: Any = STAC_Providers.MSPC  # STAC_Providers.AWS
+    STAC_BACKEND: str = os.getenv("STAC_BACKEND", "MSPC")
 
     # subscription key for MS-PC (might be required for some data sets like Sentinel-1)
     PC_SDK_SUBSCRIPTION_KEY: str = ""
