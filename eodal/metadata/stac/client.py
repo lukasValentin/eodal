@@ -4,8 +4,8 @@ Querying datasets from a Spatio-Temporal Asset Catalog (STAC).
 
 from __future__ import annotations
 
+import os
 import geopandas as gpd
-import pandas as pd
 import warnings
 
 from datetime import datetime
@@ -23,7 +23,6 @@ from eodal.utils.reprojection import infer_utm_zone
 from eodal.utils.timestamps import datetime_to_date
 
 Settings = get_settings()
-
 
 def query_stac(
     time_start: datetime,
@@ -68,7 +67,9 @@ def query_stac(
     stac_api_io.session.verify = Settings.STAC_API_IO_CA_BUNDLE
 
     # setup the client
-    cat = Client.from_file(Settings.STAC_BACKEND.URL, stac_io=stac_api_io)
+    STAC_BACKEND = os.environ.get('STAC_BACKEND', 'MSPC')
+    STAC_BACKEND = eval(f'STAC_Providers.{STAC_BACKEND}')
+    cat = Client.from_file(STAC_BACKEND.URL, stac_io=stac_api_io)
 
     # transform dates into the required format (%Y-%m-%d)
     datestr = f'{time_start.strftime("%Y-%m-%d")}/{time_end.strftime("%Y-%m-%d")}'
@@ -152,6 +153,9 @@ def sentinel2(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
     :returns:
         dataframe with references to found Sentinel-2 scenes
     """
+    STAC_BACKEND = os.environ.get('STAC_BACKEND', 'MSPC')
+    STAC_BACKEND = eval(f'STAC_Providers.{STAC_BACKEND}')
+
     # check for processing level of the data and set the collection accordingly
     filter_entities = [x.entity for x in metadata_filters]
     if "processing_level" in filter_entities:
@@ -159,7 +163,7 @@ def sentinel2(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
             x.value for x in metadata_filters if x.entity == "processing_level"
         ][0]
         processing_level = processing_level.replace("-", "_")
-    processing_level_stac = eval(f"Settings.STAC_BACKEND.S2{processing_level}")
+    processing_level_stac = eval(f"STAC_BACKEND.S2{processing_level}")
     kwargs.update({"collection": processing_level_stac})
 
     # query STAC catalog
@@ -167,7 +171,9 @@ def sentinel2(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
     scenes = query_stac(**stac_kwargs)
 
     # get STAC provider specific naming conventions
-    s2 = Settings.STAC_BACKEND.Sentinel2
+    STAC_BACKEND = os.environ.get('STAC_BACKEND', 'MSPC')
+    STAC_BACKEND = eval(f'STAC_Providers.{STAC_BACKEND}')
+    s2 = STAC_BACKEND.Sentinel2
     # loop over scenes found and apply the Filters provided
     metadata_list = []
     for scene in scenes:
@@ -177,10 +183,10 @@ def sentinel2(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
         # tile-id requires some string handling in case of AWS
         if isinstance(s2.tile_id, list):
             tile_id = "".join(
-                [str(props[x]) for x in Settings.STAC_BACKEND.Sentinel2.tile_id]
+                [str(props[x]) for x in STAC_BACKEND.Sentinel2.tile_id]
             )
         else:
-            tile_id = props[Settings.STAC_BACKEND.Sentinel2.tile_id]
+            tile_id = props[STAC_BACKEND.Sentinel2.tile_id]
         # the product_uri is also not handled the same way by the different
         # STAC providers
         try:
@@ -192,6 +198,12 @@ def sentinel2(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
             scene_id = props[s2.scene_id]
         except KeyError:
             scene_id = scene[s2.scene_id]
+        # sun zenith angle is in some cases defined as elevation angle
+        # thus, we need to subtract it from 90 deg to get the zenith angle.
+        if 'elevation' in s2.sun_zenith_angle:
+            sun_zenith_angle = 90 - props[s2.sun_zenith_angle]
+        else:
+            sun_zenith_angle = props[s2.sun_zenith_angle]
         # TODO: think about a more generic way to do this. The problem is:
         # we need to map the different STAC provider settings into EOdals
         # metadata model to avoid having the user to think about it
@@ -207,7 +219,7 @@ def sentinel2(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
                 props[s2.sensing_time], s2.sensing_time_fmt
             ),
             "sun_azimuth_angle": props[s2.sun_azimuth_angle],
-            "sun_zenith_angle": props[s2.sun_zenith_angle],
+            "sun_zenith_angle": sun_zenith_angle,
             "geom": Polygon(scene["geometry"]["coordinates"][0]),
         }
         # get links to actual Sentinel-2 bands
@@ -239,8 +251,10 @@ def sentinel1(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
     :returns:
         dataframe with references to found Sentinel-1 scenes
     """
+    STAC_BACKEND = os.environ.get('STAC_BACKEND', 'MSPC')
+    STAC_BACKEND = eval(f'STAC_Providers.{STAC_BACKEND}')
 
-    if Settings.STAC_BACKEND != STAC_Providers.MSPC:
+    if STAC_BACKEND != STAC_Providers.MSPC:
         raise ValueError("This method currently requires Microsoft Planetary Computer")
 
     # construct collection string (defaults to S1RTC if not stated otherwise in the
@@ -255,7 +269,7 @@ def sentinel1(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
 
     # query the catalog
     stac_kwargs = kwargs.copy()
-    stac_kwargs.update({"collection": eval(f"Settings.STAC_BACKEND.{collection}")})
+    stac_kwargs.update({"collection": eval(f"STAC_BACKEND.{collection}")})
     scenes = query_stac(**stac_kwargs)
     metadata_list = []
     for scene in scenes:
@@ -290,8 +304,10 @@ def landsat(metadata_filters: List[Filter], **kwargs) -> gpd.GeoDataFrame:
     :returns:
         dataframe with references to found Landsat scenes
     """
+    STAC_BACKEND = os.environ.get('STAC_BACKEND', 'MSPC')
+    STAC_BACKEND = eval(f'STAC_Providers.{STAC_BACKEND}')
 
-    if Settings.STAC_BACKEND != STAC_Providers.MSPC:
+    if STAC_BACKEND != STAC_Providers.MSPC:
         raise ValueError("This method currently requires Microsoft Planetary Computer")
 
     # query the catalog
