@@ -2,6 +2,7 @@
 Tests for the pystac client interface
 '''
 
+import os
 import pytest
 import geopandas as gpd
 
@@ -11,12 +12,12 @@ from shapely.geometry import box
 from eodal.mapper.filter import Filter
 from eodal.metadata.stac import sentinel1, sentinel2
 from eodal.utils.sentinel1 import _url_to_safe_name
-from eodal.utils.sentinel2 import ProcessingLevels
 
 
 def test_mspc_sentinel1(get_polygons):
     """Sentinel-1 GRD and RTC from MSPC"""
 
+    os.environ["STAC_BACKEND"] = 'MSPC'
     time_start = datetime(2022, 5, 1)
     time_end = datetime(2022, 5, 31)
 
@@ -59,7 +60,7 @@ def test_mspc_sentinel1(get_polygons):
 
 def test_mspc_sentinel2(get_polygons):
     """Sentinel-2 L2A from MSPC"""
-
+    os.environ["STAC_BACKEND"] = 'MSPC'
     # define time period
     time_start = datetime(2022, 5, 1)
     time_end = datetime(2022, 5, 31)
@@ -85,3 +86,37 @@ def test_mspc_sentinel2(get_polygons):
         
     assert not res_s2.empty, 'no results found'
     assert 'assets' in res_s2.columns, 'no assets provided'
+
+
+@pytest.mark.parametrize("stac_provider", [('MSPC'), ('AWS')])
+def test_provider_switch(get_polygons, stac_provider):
+
+    # define time period
+    time_start = datetime(2022, 5, 1)
+    time_end = datetime(2022, 5, 31)
+    # set scene cloud cover threshold [%]
+    cloud_cover_threshold = 80
+
+    polys = gpd.read_file(get_polygons())
+    bbox = box(*polys.to_crs(epsg=4326).total_bounds)
+
+    metadata_filters = [
+        Filter('cloudy_pixel_percentage', '<', cloud_cover_threshold),
+        Filter('processing_level', '==', 'Level-2A')
+    ]
+
+    # set STAC provider
+    os.environ["STAC_BACKEND"] = stac_provider
+
+    # run stack query and make sure some items are returned
+    res_s2 = sentinel2(
+        metadata_filters=metadata_filters,
+            collection='sentinel2-msi',
+            bounding_box=bbox,
+            time_start=time_start,
+            time_end=time_end
+    )
+        
+    assert not res_s2.empty, f'no results found (STAC Provider: {stac_provider})'
+    assert 'assets' in res_s2.columns, 'no assets provided'
+
